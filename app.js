@@ -46,22 +46,45 @@ function booking(h){return `https://www.booking.com/searchresults.html?ss=${enco
 function render(){const mode=document.querySelector('#sort').value;let list=[...hotels];if(mode==='name')list.sort((a,b)=>a.name.localeCompare(b.name));if(mode==='price')list.sort((a,b)=>{const x=offerData[a.n].price ? rub(offerData[a.n]) : Infinity,y=offerData[b.n].price ? rub(offerData[b.n]) : Infinity;return x-y||a.n-b.n});
  document.querySelector('#hotel-list').innerHTML=list.map(h=>`<article class="hotel-card" id="hotel-${h.n}"><div class="card-main"><div class="card-number">${String(h.n).padStart(2,'0')}</div><div class="card-info"><div class="area">${h.area} ${h.favorite?'<span class="favorite">✳ ВАША ОТМЕТКА ++</span>':''}</div><h3>${h.name}</h3><span class="tag"><span>✳</span> ${h.tag}</span></div><button class="locate" type="button" data-locate="${h.n}" title="Показать на карте" aria-label="Показать ${h.name} на карте">↗</button></div><div class="pros-cons"><div><div class="pc-title plus">＋ &nbsp; ЧТО НРАВИТСЯ</div><p>${reviews[h.n].p.map((text,i)=>`<span class="review-observation">${text} <a href="${h.sources[i][1]}" target="_blank" rel="noopener noreferrer">↗</a></span>`).join("")}</p></div><div><div class="pc-title minus">− &nbsp; НА ЧТО ОБРАТИТЬ ВНИМАНИЕ</div><p>${reviews[h.n].m.map((text,i)=>`<span class="review-observation">${text} <a href="${h.sources[i][1]}" target="_blank" rel="noopener noreferrer">↗</a></span>`).join("")}</p></div></div><div class="sources">ОТЗЫВЫ: ${h.sources.map(s=>`<a href="${s[1]}" target="_blank" rel="noopener noreferrer">${s[0]} ↗</a>`).join(' <span>·</span> ')}</div><div class="offer-box">${offerData[h.n].price ? `<div class="offer-price"><div><span class="offer-label">ЗА 6 НОЧЕЙ · ЗАВТРАК ДЛЯ ДВОИХ</span><div class="offer-amount">≈ ${money(rub(offerData[h.n]))} ₽ <small>(${original(offerData[h.n])})</small></div></div><a class="book-link" href="${dated(offerData[h.n].url)}" target="_blank" rel="noopener noreferrer">${offerData[h.n].vendor} ↗</a></div><div class="offer-details">${offerData[h.n].room} · ${offerData[h.n].terms || 'Невозвратный; предоплата онлайн.'}</div><div class="offer-comparison"><a href="${dated(offerData[h.n].compareUrl)}" target="_blank" rel="noopener noreferrer">${offerData[h.n].compare} ↗</a></div>` : `<div class="offer-label">ТАРИФ С ЗАВТРАКОМ НЕ ПОДТВЕРЖДЁН</div><p class="offer-details">${offerData[h.n].status}</p><a class="offer-comparison" href="${dated(offerData[h.n].url)}" target="_blank" rel="noopener noreferrer">Проверить на Booking.com ↗</a>`}<a class="map-link location-link" href="https://www.google.com/maps/search/?api=1&query=${h.pos.join(',')}" target="_blank" rel="noopener noreferrer">Открыть расположение ↗</a></div></article>`).join('');
  document.querySelectorAll('[data-locate]').forEach(el=>el.addEventListener('click',()=>{selectHotel(Number(el.dataset.locate));document.querySelector('#map-section').scrollIntoView({behavior:'smooth',block:'center'})}));}
+// A self-contained overview map: no tiles, API key, iframe or network request required.
+const mapBounds={x:0,y:0,width:1000,height:1350};
+let mapView={...mapBounds};
+function project(coord){return [(coord[0]-98.16)*5000,(8.84-coord[1])*5000]}
+function linePath(coords,close=false){return coords.map((c,i)=>{const [x,y]=project(c);return `${i?'L':'M'}${x.toFixed(1)},${y.toFixed(1)}`}).join(' ')+(close?' Z':'')}
+function geometryPath(g){
+ if(g.type==='LineString') return linePath(g.coordinates);
+ if(g.type==='MultiLineString') return g.coordinates.map(c=>linePath(c)).join(' ');
+ if(g.type==='Polygon') return g.coordinates.map(c=>linePath(c,true)).join(' ');
+ if(g.type==='MultiPolygon') return g.coordinates.flatMap(poly=>poly.map(c=>linePath(c,true))).join(' ');
+ return '';
+}
 function selectHotel(n){
-  const h=hotels.find(h=>h.n===n); if(!h) return;
-  selectedHotel=n;
-  const frame=document.querySelector('#google-map');
-  frame.src=`https://maps.google.com/maps?q=${h.pos.join(',')}&z=15&hl=ru&output=embed`;
-  frame.title=`Google Карты: ${h.name}`;
-  document.querySelector('#map-single').href=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(h.name+' '+h.pos.join(','))}`;
-  document.querySelectorAll('[data-map-hotel]').forEach(b=>{const active=Number(b.dataset.mapHotel)===n;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});
+ const h=hotels.find(item=>item.n===n); if(!h)return;
+ selectedHotel=n;
+ const offer=offerData[n];
+ document.querySelector('#map-selection').innerHTML=`<span class="selected-number">${String(h.n).padStart(2,'0')} / ${h.area}</span><h3>${h.name}</h3><p>${h.tag}</p><div class="selected-price">${offer.price?`≈ ${money(rub(offer))} ₽ <small>за 6 ночей с завтраком</small>`:'<small>Тариф на 6 ночей не подтверждён</small>'}</div><div class="selected-links"><a href="#hotel-${h.n}">Смотреть отель <span>↓</span></a><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(h.name+' '+h.pos.join(','))}" target="_blank" rel="noopener noreferrer">Google Карты ↗</a></div>`;
+ document.querySelectorAll('[data-map-hotel]').forEach(el=>{const active=Number(el.dataset.mapHotel)===n;el.classList.toggle('active',active);el.setAttribute('aria-pressed',String(active));});
 }
-function initGoogleMap(){
-  const picker=document.querySelector('#map-picker');
-  picker.innerHTML=hotels.map(h=>`<button type="button" data-map-hotel="${h.n}" aria-pressed="false" title="${h.name}"><span>${String(h.n).padStart(2,'0')}</span> ${h.name}</button>`).join('');
-  picker.querySelectorAll('[data-map-hotel]').forEach(b=>b.addEventListener('click',()=>selectHotel(Number(b.dataset.mapHotel))));
-  const points=[...hotels].sort((a,b)=>a.pos[0]-b.pos[0]).map(h=>h.pos.join(','));
-  const query=new URLSearchParams({api:'1',origin:points[0],destination:points[points.length-1],waypoints:points.slice(1,-1).join('|'),travelmode:'driving'});
-  document.querySelector('#map-all').href='https://www.google.com/maps/dir/?'+query.toString();
-  selectHotel(selectedHotel);
+function initLocalMap(){
+ const picker=document.querySelector('#map-picker');
+ picker.innerHTML=hotels.map(h=>`<button type="button" data-map-hotel="${h.n}" aria-pressed="false"><span>${String(h.n).padStart(2,'0')}</span><strong>${h.name}</strong><i>↗</i></button>`).join('');
+ picker.querySelectorAll('[data-map-hotel]').forEach(b=>b.addEventListener('click',()=>selectHotel(Number(b.dataset.mapHotel))));
+ const shape=(key,cls)=>mapGeometry[key].map(g=>`<path class="${cls}" d="${geometryPath(g)}"/>`).join('');
+ // Close neighbours are offset visually; a short leader points to their actual coordinates.
+ const offsets={1:[-32,-14],9:[35,14],7:[34,-12],8:[-34,12],4:[-25,-12],5:[30,12]};
+ const markers=hotels.map(h=>{const [x,y]=project([h.pos[1],h.pos[0]]),[dx,dy]=offsets[h.n]||[0,0];return `<g class="map-marker" data-map-hotel="${h.n}" role="button" tabindex="0" aria-pressed="false" aria-label="${h.name}"><line x1="${x}" y1="${y}" x2="${x+dx}" y2="${y+dy}"/><circle class="pin-dot" cx="${x}" cy="${y}" r="4"/><circle class="pin-circle" cx="${x+dx}" cy="${y+dy}" r="20"/><text x="${x+dx}" y="${y+dy+5}" text-anchor="middle">${String(h.n).padStart(2,'0')}</text></g>`}).join('');
+ document.querySelector('#map-canvas').innerHTML=`<svg id="local-map" viewBox="0 0 1000 1350" role="group" aria-label="Карта с интерактивными метками отелей"><rect class="map-water" x="0" y="0" width="1000" height="1350"/>${shape('land','map-land')}${shape('coast','map-coast')}${shape('roads','map-road')}<text class="map-sea-label" x="165" y="630" text-anchor="middle">АНДАМАНСКОЕ</text><text class="map-sea-label" x="165" y="657" text-anchor="middle">МОРЕ</text><text class="map-land-label" x="810" y="740" text-anchor="middle">КАО ЛАК</text>${markers}</svg><div class="map-north" aria-hidden="true">N <span>↑</span></div><div class="map-hint">ПЕРЕТАЩИТЕ, ЧТОБЫ ПЕРЕМЕСТИТЬ</div>`;
+ const svg=document.querySelector('#local-map');
+ svg.querySelectorAll('[data-map-hotel]').forEach(el=>{el.addEventListener('click',()=>selectHotel(Number(el.dataset.mapHotel)));el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selectHotel(Number(el.dataset.mapHotel))}})});
+ function updateView(){svg.setAttribute('viewBox',`${mapView.x} ${mapView.y} ${mapView.width} ${mapView.height}`)}
+ function zoom(factor){const w=Math.max(mapBounds.width/4,Math.min(mapBounds.width,mapView.width*factor)), h=w*mapBounds.height/mapBounds.width;mapView.x=Math.max(0,Math.min(mapBounds.width-w,mapView.x+(mapView.width-w)/2));mapView.y=Math.max(0,Math.min(mapBounds.height-h,mapView.y+(mapView.height-h)/2));mapView.width=w;mapView.height=h;updateView()}
+ document.querySelector('#zoom-in').addEventListener('click',()=>zoom(.7));
+ document.querySelector('#zoom-out').addEventListener('click',()=>zoom(1/.7));
+ document.querySelector('#zoom-reset').addEventListener('click',()=>{mapView={...mapBounds};updateView()});
+ let drag=null;
+ svg.addEventListener('pointerdown',e=>{if(e.target.closest('.map-marker'))return;drag={id:e.pointerId,x:e.clientX,y:e.clientY};svg.setPointerCapture(e.pointerId);svg.classList.add('dragging')});
+ svg.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;const scale=svg.getScreenCTM().a;mapView.x=Math.max(0,Math.min(mapBounds.width-mapView.width,mapView.x-(e.clientX-drag.x)/scale));mapView.y=Math.max(0,Math.min(mapBounds.height-mapView.height,mapView.y-(e.clientY-drag.y)/scale));drag.x=e.clientX;drag.y=e.clientY;updateView()});
+ const endDrag=()=>{drag=null;svg.classList.remove('dragging')};svg.addEventListener('pointerup',endDrag);svg.addEventListener('pointercancel',endDrag);svg.addEventListener('lostpointercapture',endDrag);
+ selectHotel(selectedHotel);
 }
-render();document.querySelector('#sort').addEventListener('change',render);initGoogleMap();
+render();document.querySelector('#sort').addEventListener('change',render);initLocalMap();
